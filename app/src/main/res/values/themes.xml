@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Cloudly" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/cloud_bg</item>
+        <item name="android:statusBarColor">@color/cloud_bg</item>
+        <item name="android:navigationBarColor">@color/cloud_bg</item>
+    </style>
+    <color name="cloud_bg">#0E1014</color>
+</resources>
