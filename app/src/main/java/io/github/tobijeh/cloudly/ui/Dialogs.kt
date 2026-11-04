@@ -103,6 +103,49 @@ fun WordEditorDialog(
     )
 }
 
+/** Hold menu → Listen-for spellings: extra spellings, transliterations or forms that count for this word. */
+@Composable
+fun ListenForDialog(word: Word, onDismiss: () -> Unit, onSave: (List<String>) -> Unit) {
+    val variants = remember { mutableStateListOf<String>().apply { addAll(word.variants); if (isEmpty()) add("") } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Listen for “${word.display}”",
+                fontFamily = CloudFonts.forText(word.display),
+            )
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "“${word.display}” itself always counts. Add other spellings, transliterations or forms " +
+                        "the transcript might use. Earlier mentions in this session are counted straight away.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                variants.forEachIndexed { i, v ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = v,
+                            onValueChange = { variants[i] = it },
+                            singleLine = true,
+                            textStyle = TextStyle(textDirection = TextDirection.Content),
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                        )
+                        IconButton(onClick = { variants.removeAt(i) }) { Icon(Icons.Filled.Close, "Remove spelling") }
+                    }
+                }
+                TextButton(onClick = { variants.add("") }) {
+                    Icon(Icons.Filled.Add, null)
+                    Text("Add spelling")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(variants.toList()) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 @Composable
 fun ConfirmDialog(title: String, message: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(

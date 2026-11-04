@@ -60,6 +60,12 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric runs the Compose gesture tests on the JVM.
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            // Optional mirror for Robolectric's Android jars (local builds behind rate-limited networks).
+            (project.findProperty("robolectricRepo") as String?)?.let { test.systemProperty("robolectric.dependency.repo.url", it) }
+        }
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -82,4 +88,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

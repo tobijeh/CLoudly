@@ -1,14 +1,35 @@
 package io.github.tobijeh.cloudly.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import io.github.tobijeh.cloudly.core.CloudLayout
+import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,8 +50,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -78,8 +97,9 @@ import io.github.tobijeh.cloudly.core.Word
 interface ControlsActions {
     val controller: CloudController
     fun addWord()
-    fun edit(word: Word)
+    fun editVariants(word: Word)
     fun delete(word: Word)
+    fun message(text: String)
     fun saveEpisode()
     fun loadEpisode()
     fun openSettings()
@@ -99,7 +119,7 @@ fun ControlsHeader(state: CloudState, actions: ControlsActions, mirror: Boolean,
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Cloudly", style = MaterialTheme.typography.headlineSmall, fontFamily = CloudFonts.fraunces)
+                Text("Cloudly", style = MaterialTheme.typography.headlineSmall, fontFamily = CloudFonts.fraunces, color = MaterialTheme.colorScheme.onBackground)
                 Text(statusLine(state), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
             }
             FilledTonalButton(onClick = { actions.controller.setListening(!state.listening) }) {
@@ -143,7 +163,7 @@ fun ControlsHeader(state: CloudState, actions: ControlsActions, mirror: Boolean,
     }
 }
 
-/** The phone's main screen: header, live preview, add button, and the word list. */
+/** The phone's main screen: header, the cloud preview (all word gestures happen here), add button, word list. */
 @Composable
 fun ControlsContent(
     state: CloudState,
@@ -155,24 +175,61 @@ fun ControlsContent(
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val c = actions.controller
+    var renaming by remember { mutableStateOf<Pair<Long, Offset>?>(null) }
+    var menuFor by remember { mutableStateOf<Pair<Long, Offset>?>(null) }
+    val gestures = remember(c, actions) {
+        CloudGestures(
+            onTap = c::tap,
+            onDoubleTap = { id, at -> menuFor = null; renaming = id to at },
+            onHold = { id, at -> renaming = null; menuFor = id to at },
+            onDrag = c::drag,
+            onDragEnd = { id, binned ->
+                val w = c.state.value.word(id)
+                if (binned && w != null) actions.delete(w) else c.endDrag(id)
+            },
+            onPinch = c::emphasize,
+            onPinchEnd = c::endEmphasis,
+        )
+    }
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         ControlsHeader(state, actions, mirror, tvName)
         if (showPreview) {
-            CloudView(
-                state = state,
-                settings = settings,
-                emptyHint = "Add a word to start the cloud",
-                onTapWord = c::tap,
-                onPinch = c::emphasize,
-                onPinchEnd = c::endEmphasis,
-                modifier = Modifier
+            // Same landscape shape as the TV, so a spot on the preview is the same spot on the TV.
+            Box(
+                Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(12.dp)),
-            )
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
+            ) {
+                CloudView(
+                    state = state,
+                    settings = settings,
+                    emptyHint = "Add a word to start the cloud",
+                    gestures = gestures,
+                    showGuides = true,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                renaming?.let { (id, at) ->
+                    val w = state.word(id)
+                    if (w == null) renaming = null
+                    else RenameField(w, at) { newName ->
+                        renaming = null
+                        if (newName != null && !c.rename(id, newName)) {
+                            actions.message("Another word is already called “${newName.trim()}”")
+                        }
+                    }
+                }
+                menuFor?.let { (id, at) ->
+                    val w = state.word(id)
+                    Box(Modifier.placeAt(at)) {
+                        if (w != null) WordMenu(w, actions, onDismiss = { menuFor = null })
+                    }
+                }
+            }
             Text(
-                "Tap a word to lock it in the centre. Pinch out on a word to enlarge it on the TV.",
+                "Tap: lock in centre · Double-tap: rename · Hold: options · Drag: move, or drop on the bin · Pinch: enlarge",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -185,6 +242,7 @@ fun ControlsContent(
         }
         val maxCount = state.maxCount
         val words = state.wordsByRecent
+        val onCloud = CloudLayout.visibleWords(state, settings.maxVisible).mapTo(HashSet()) { it.id }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(words, key = { it.id }) { w ->
                 WordRow(
@@ -192,11 +250,8 @@ fun ControlsContent(
                     maxCount = maxCount,
                     locked = state.lock?.wordId == w.id,
                     centre = state.centreId == w.id,
-                    onTap = { c.tap(w.id) },
-                    onEdit = { actions.edit(w) },
-                    onToggleHidden = { c.setHidden(w.id, !w.hidden) },
-                    onReset = { c.resetCount(w.id) },
-                    onDelete = { actions.delete(w) },
+                    onCloud = w.id in onCloud,
+                    actions = actions,
                     modifier = Modifier.animateItem(),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
@@ -205,18 +260,99 @@ fun ControlsContent(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** Places a zero-size anchor at [at] (preview pixels) so a menu can drop down from a word. */
+private fun Modifier.placeAt(at: Offset): Modifier = layout { measurable, constraints ->
+    val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        p.place(at.x.roundToInt() - p.width / 2, at.y.roundToInt() - p.height / 2)
+    }
+}
+
+/** Hold menu: Listen-for spellings, Hide from TV (keeps count), Reset count. Delete is the drag-to-bin gesture. */
+@Composable
+private fun WordMenu(word: Word, actions: ControlsActions, onDismiss: () -> Unit) {
+    val c = actions.controller
+    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
+        Text(
+            word.display,
+            fontFamily = CloudFonts.forText(word.display),
+            style = MaterialTheme.typography.titleMedium,
+            color = wordColor(word.id),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        DropdownMenuItem(
+            text = { Text("Listen-for spellings…") },
+            leadingIcon = { Icon(Icons.Filled.Hearing, null) },
+            onClick = { onDismiss(); actions.editVariants(word) },
+        )
+        DropdownMenuItem(
+            text = { Text(if (word.hidden) "Show on TV" else "Hide from TV") },
+            leadingIcon = { Icon(if (word.hidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, null) },
+            onClick = { onDismiss(); c.setHidden(word.id, !word.hidden) },
+        )
+        DropdownMenuItem(
+            text = { Text("Reset count") },
+            leadingIcon = { Icon(Icons.Filled.RestartAlt, null) },
+            onClick = { onDismiss(); c.resetCount(word.id) },
+        )
+    }
+}
+
+/** Double-tap: edit the name right where the word sits on the preview. Enter/Done saves, Back cancels. */
+@Composable
+private fun RenameField(word: Word, at: Offset, onDone: (String?) -> Unit) {
+    var value by remember(word.id) { mutableStateOf(TextFieldValue(word.display, TextRange(0, word.display.length))) }
+    val focus = remember { FocusRequester() }
+    var hadFocus by remember { mutableStateOf(false) }
+    var finished by remember { mutableStateOf(false) }
+    fun finish(result: String?) {
+        if (finished) return
+        finished = true
+        onDone(result)
+    }
+    BackHandler { finish(null) }
+    Box(Modifier.placeAt(at)) {
+        BasicTextField(
+            value = value,
+            onValueChange = { value = it },
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = CloudFonts.forText(value.text),
+                fontSize = 22.sp,
+                color = wordColor(word.id),
+                textAlign = TextAlign.Center,
+                textDirection = TextDirection.Content,
+            ),
+            cursorBrush = SolidColor(wordColor(word.id)),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { finish(value.text) }),
+            modifier = Modifier
+                .widthIn(min = 120.dp, max = 260.dp)
+                .background(Color(0xE61A1D24), RoundedCornerShape(8.dp))
+                .border(1.dp, wordColor(word.id).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .focusRequester(focus)
+                .onFocusChanged { f ->
+                    if (f.isFocused) hadFocus = true else if (hadFocus) finish(value.text)
+                },
+        )
+    }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+}
+
+/**
+ * A word list row: name, live counter and size bar. Words on the cloud are controlled by gestures on the
+ * preview; a row is only tappable when its word isn't on the cloud (hidden, or beyond the visible limit),
+ * and then opens the same options as holding a word.
+ */
 @Composable
 fun WordRow(
     word: Word,
     maxCount: Int,
     locked: Boolean,
     centre: Boolean,
-    onTap: () -> Unit,
-    onEdit: () -> Unit,
-    onToggleHidden: () -> Unit,
-    onReset: () -> Unit,
-    onDelete: () -> Unit,
+    onCloud: Boolean,
+    actions: ControlsActions,
     modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -226,9 +362,9 @@ fun WordRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 80.dp)
+                .heightIn(min = 72.dp)
                 .background(if (centre) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background)
-                .combinedClickable(onClick = onTap, onLongClick = { menu = true })
+                .then(if (onCloud) Modifier else Modifier.clickable { menu = true })
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -239,8 +375,8 @@ fun WordRow(
                     Text(
                         word.display,
                         fontFamily = CloudFonts.forText(word.display),
-                        fontSize = 26.sp,
-                        color = if (word.hidden) MaterialTheme.colorScheme.onSurfaceVariant else color,
+                        fontSize = 24.sp,
+                        color = if (word.hidden || !onCloud) MaterialTheme.colorScheme.onSurfaceVariant else color,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
@@ -273,15 +409,6 @@ fun WordRow(
                 Text("$n", fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 12.dp))
             }
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text("Edit") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menu = false; onEdit() })
-            DropdownMenuItem(
-                text = { Text(if (word.hidden) "Show on TV" else "Hide from TV") },
-                leadingIcon = { Icon(if (word.hidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, null) },
-                onClick = { menu = false; onToggleHidden() },
-            )
-            DropdownMenuItem(text = { Text("Reset count") }, leadingIcon = { Icon(Icons.Filled.RestartAlt, null) }, onClick = { menu = false; onReset() })
-            DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Filled.Delete, null) }, onClick = { menu = false; onDelete() })
-        }
+        if (menu) WordMenu(word, actions, onDismiss = { menu = false })
     }
 }

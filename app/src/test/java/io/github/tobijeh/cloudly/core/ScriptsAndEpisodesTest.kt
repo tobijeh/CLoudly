@@ -34,3 +34,27 @@ class ScriptsAndEpisodesTest {
         assertEquals("恩典.json", EpisodeCodec.fileNameFor("恩典"))
     }
 }
+
+class EpisodeMigrationTest {
+    /** A word list saved by version 0.1 (Episode version 1). Must keep loading in every later version. */
+    private val v1 = """
+        {
+            "name": "Ep 3",
+            "savedAt": 1793700000000,
+            "words": [
+                { "id": 1, "display": "שָׁלוֹם", "variants": ["shalom"], "count": 4, "hidden": false, "lastActivityAt": 5 },
+                { "id": 2, "display": "恩典", "count": 2, "hidden": true }
+            ],
+            "version": 1
+        }
+    """.trimIndent()
+
+    @org.junit.Test
+    fun `version 1 word lists still load with their counts`() {
+        val e = EpisodeCodec.decode(v1)
+        org.junit.Assert.assertEquals(listOf("שָׁלוֹם", "恩典"), e.words.map { it.display })
+        org.junit.Assert.assertEquals(listOf(4, 2), e.words.map { it.count })
+        org.junit.Assert.assertEquals(listOf("shalom"), e.words[0].variants)
+        org.junit.Assert.assertEquals(true, e.words[1].hidden)
+    }
+}

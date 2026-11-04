@@ -12,8 +12,12 @@ publishes a signed APK to GitHub Releases, so updates install over the previous 
   phone shows the controls.
 - **Screen mirroring only (e.g. Chromecast "Cast screen"):** open ⋮ → *Full-screen cloud (mirroring)*. The phone
   shows the cloud in landscape. Swipe from the left edge, or tap the ☰ button, for the controls.
-- Tap a word to lock it in the centre, and tap it again or tap *Auto* to release it. Pinch out on a word in the
-  preview to enlarge it on the TV. Long-press a word to edit, hide, reset or delete it.
+- Everything happens on the cloud preview at the top of the phone:
+  - **Tap** a word: lock it in the centre (tap again, or *Auto*, to release).
+  - **Double-tap**: rename it.
+  - **Hold**: Listen-for spellings, Hide from TV, Reset count.
+  - **Drag**: move it anywhere. It drifts back after a minute. Drop it on the bin to delete (with Undo).
+  - **Pinch out**: enlarge it on the TV for a moment.
 
 ## Release signing (one-time setup)
 Releases are signed with one fixed key so updates install over the previous version. Only one repository

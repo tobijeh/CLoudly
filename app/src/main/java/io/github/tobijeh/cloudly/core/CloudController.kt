@@ -15,7 +15,11 @@ data class DeletedWord(val word: Word, val wasLocked: Boolean, val wasCurrent: B
 class CloudController(
     private val clock: () -> Long = System::currentTimeMillis,
     initial: CloudState = CloudState(),
+    val matcher: Matcher = Matcher(),
 ) {
+    /** In-memory session transcript (never persisted). Fed by listening; used for backfill. */
+    val transcript = SessionTranscript()
+
     private val _state = MutableStateFlow(initial)
     val state: StateFlow<CloudState> = _state.asStateFlow()
 
@@ -34,6 +38,7 @@ class CloudController(
         val id = newId()
         val word = Word(id = id, display = text, variants = cleanVariants(variants, text), lastActivityAt = clock())
         _state.update { it.copy(words = it.words + word) }
+        backfill(id)
         return id
     }
 
@@ -42,6 +47,67 @@ class CloudController(
         val text = display.trim()
         if (text.isEmpty()) return
         updateWord(id) { it.copy(display = text, variants = cleanVariants(variants, text)) }
+        backfill(id)
+    }
+
+    /**
+     * Double-tap rename. Keeps the word's id, size, count and position; the old name becomes a Listen-for
+     * variant so it keeps counting. Then backfills from the session transcript. Returns false if the new
+     * name is blank or already used by another word.
+     */
+    fun rename(id: Long, newDisplay: String): Boolean {
+        val text = newDisplay.trim()
+        val old = _state.value.word(id) ?: return false
+        if (text.isEmpty()) return false
+        if (text == old.display) return true
+        if (_state.value.words.any { it.id != id && it.display.equals(text, ignoreCase = true) }) return false
+        updateWord(id) { it.copy(display = text, variants = cleanVariants(it.variants + it.display, text)) }
+        backfill(id)
+        return true
+    }
+
+    /** Hold menu → Listen-for spellings. Rescans the session transcript for the new spellings. */
+    fun setVariants(id: Long, variants: List<String>) {
+        updateWord(id) { it.copy(variants = cleanVariants(variants, it.display)) }
+        backfill(id)
+    }
+
+    /**
+     * Sets the word's count from earlier mentions in the session transcript. Never lowers a count
+     * (taps and earlier matches stay counted): count = max(current, mentions in transcript).
+     */
+    fun backfill(id: Long) {
+        if (transcript.isEmpty()) return
+        val w = _state.value.word(id) ?: return
+        val found = matcher.count(transcript.text(), w)
+        if (found > w.count) updateWord(id) { it.copy(count = maxOf(it.count, found)) }
+    }
+
+    /** A new transcript chunk from listening: store it (memory only) and count mentions in it. */
+    fun ingest(chunk: String) {
+        if (chunk.isBlank()) return
+        transcript.append(chunk)
+        val words = _state.value.words
+        val hits = matcher.countAll(chunk, words)
+        // Each matched word gets its mentions; with several matches the last one listed takes the centre.
+        for (w in words) hits[w.id]?.let { mention(w.id, it) }
+    }
+
+    /** Drag on the preview: the word follows to (nx, ny), relative to the viewport centre. */
+    fun drag(id: Long, nx: Float, ny: Float) {
+        _state.update { s ->
+            if (s.word(id) == null) s
+            else s.copy(pins = s.pins + (id to Pin(nx.coerceIn(-0.5f, 0.5f), ny.coerceIn(-0.5f, 0.5f), dragging = true)))
+        }
+    }
+
+    /** Finger lifted: the word stays where it was dropped until the drift-back delay passes. */
+    fun endDrag(id: Long) {
+        val now = clock()
+        _state.update { s ->
+            val p = s.pins[id] ?: return@update s
+            s.copy(pins = s.pins + (id to p.copy(dragging = false, releasedAt = now)))
+        }
     }
 
     /** One mention: the word grows and moves to the centre unless a word is locked. */
@@ -87,10 +153,16 @@ class CloudController(
 
     /** Call periodically; releases the lock once the auto-release timer has elapsed. */
     fun tick() {
-        val limit = settings.autoReleaseMs ?: return
-        val lock = _state.value.lock ?: return
-        if (clock() - lock.lockedAt >= limit) {
+        val now = clock()
+        val limit = settings.autoReleaseMs
+        val lock = _state.value.lock
+        if (limit != null && lock != null && now - lock.lockedAt >= limit) {
             _state.update { if (it.lock == lock) it.copy(lock = null) else it }
+        }
+        // Drift-back: words dropped somewhere glide home once left alone long enough.
+        val drift = settings.driftBackMs
+        if (_state.value.pins.values.any { !it.dragging && now - it.releasedAt >= drift }) {
+            _state.update { s -> s.copy(pins = s.pins.filterValues { it.dragging || now - it.releasedAt < drift }) }
         }
     }
 
@@ -101,6 +173,7 @@ class CloudController(
                 lock = if (hidden && s.lock?.wordId == id) null else s.lock,
                 currentId = if (hidden && s.currentId == id) null else s.currentId,
                 emphasis = if (hidden && s.emphasis?.wordId == id) null else s.emphasis,
+                pins = if (hidden) s.pins - id else s.pins,
             )
         }
     }
@@ -117,6 +190,7 @@ class CloudController(
                 lock = if (s.lock?.wordId == id) null else s.lock,
                 currentId = if (s.currentId == id) null else s.currentId,
                 emphasis = if (s.emphasis?.wordId == id) null else s.emphasis,
+                pins = s.pins - id,
             )
         }
         return deleted
@@ -134,8 +208,16 @@ class CloudController(
         }
     }
 
+    /** Clear all: removes every word and clears the session transcript. */
     fun clearAll() {
-        _state.update { it.copy(words = emptyList(), currentId = null, lock = null, emphasis = null) }
+        transcript.clear()
+        _state.update { it.copy(words = emptyList(), currentId = null, lock = null, emphasis = null, pins = emptyMap()) }
+    }
+
+    /** Ending a session clears the in-memory transcript. */
+    fun endSession() {
+        transcript.clear()
+        setListening(false)
     }
 
     /** Replaces the word list (loading an episode). When [keepCounts] is false all counts start at zero. */
@@ -145,7 +227,7 @@ class CloudController(
             // Re-id to keep ids unique; preserve list order as recency (first = most recent).
             w.copy(id = newId(), count = if (keepCounts) w.count else 0, lastActivityAt = now - i)
         }
-        _state.update { it.copy(words = fresh, currentId = null, lock = null, emphasis = null) }
+        _state.update { it.copy(words = fresh, currentId = null, lock = null, emphasis = null, pins = emptyMap()) }
     }
 
     fun setListening(listening: Boolean) {

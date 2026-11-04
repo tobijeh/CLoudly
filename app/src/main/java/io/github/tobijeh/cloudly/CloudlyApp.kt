@@ -3,6 +3,7 @@ package io.github.tobijeh.cloudly
 import android.app.Application
 import io.github.tobijeh.cloudly.core.CloudController
 import io.github.tobijeh.cloudly.core.CloudState
+import io.github.tobijeh.cloudly.core.Matcher
 import io.github.tobijeh.cloudly.data.EpisodeStore
 import io.github.tobijeh.cloudly.data.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -22,7 +23,12 @@ class AppGraph(app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val settings = SettingsStore(app)
     val episodes = EpisodeStore(app.filesDir)
-    val controller = CloudController(initial = CloudState(words = episodes.loadCurrent()))
+    /** Simplified → Traditional Chinese, so either form in the transcript matches a word. */
+    private val hansToHant = android.icu.text.Transliterator.getInstance("Hans-Hant")
+    val controller = CloudController(
+        initial = CloudState(words = episodes.loadCurrent()),
+        matcher = Matcher { text -> synchronized(hansToHant) { hansToHant.transliterate(text) } },
+    )
 
     @OptIn(FlowPreview::class)
     fun start() {
