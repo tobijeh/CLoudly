@@ -16,22 +16,17 @@ publishes a signed APK to GitHub Releases, so updates install over the previous 
   preview to enlarge it on the TV. Long-press a word to edit, hide, reset or delete it.
 
 ## Release signing (one-time setup)
-Create a keystore once and keep it safe. If it's lost, existing installs can't be updated.
+Releases are signed with one fixed key so updates install over the previous version. Only one repository
+secret is needed: `CLOUDLY_KEYSTORE_BASE64`, holding the keystore file as base64 text. The keystore password
+(`cloudly-release`) and alias (`cloudly`) are fixed in `release.yml`; the keystore file itself is the secret.
+Keep a backup copy of the base64 text. If it's lost, existing installs can't be updated.
 
+To make a new key (only if starting over):
 ```sh
-keytool -genkeypair -v -keystore cloudly-release.jks -alias cloudly \
-  -keyalg RSA -keysize 4096 -validity 36500
-base64 -w0 cloudly-release.jks > cloudly-release.jks.b64   # macOS: base64 -i cloudly-release.jks
+keytool -genkeypair -keystore cloudly-release.jks -storetype PKCS12 -storepass cloudly-release \
+  -keypass cloudly-release -alias cloudly -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Cloudly"
+base64 -w0 cloudly-release.jks   # paste the output into the CLOUDLY_KEYSTORE_BASE64 secret
 ```
-
-Then add these four entries under GitHub → Settings → Secrets and variables → Actions → New repository secret:
-
-| Secret | Value |
-|---|---|
-| `CLOUDLY_KEYSTORE_BASE64` | contents of `cloudly-release.jks.b64` |
-| `CLOUDLY_KEYSTORE_PASSWORD` | the keystore password you chose |
-| `CLOUDLY_KEY_ALIAS` | `cloudly` |
-| `CLOUDLY_KEY_PASSWORD` | the key password (same as the keystore password if you pressed Enter) |
 
 ## Development
 ```sh

@@ -68,6 +68,7 @@ the main APK size cost). Background `#0E1014`. Soft per-word colours from `wordC
 - One branch per milestone → PR → CI (`.github/workflows/ci.yml`: unit tests + debug build) → squash auto-merge.
 - Pushing to `main` runs `release.yml`: tests, signed release APK (`versionCode` = run number,
   `versionName` = `cloudlyVersionPrefix` + `.` + run number), and a GitHub Release `v<versionName>` with the APK
-  attached (for Obtainium). Signing secrets: `CLOUDLY_KEYSTORE_BASE64`, `CLOUDLY_KEYSTORE_PASSWORD`,
-  `CLOUDLY_KEY_ALIAS`, `CLOUDLY_KEY_PASSWORD`. Bump `cloudlyVersionPrefix` per milestone (0.1 → 0.2 …).
+  attached (for Obtainium). Signing needs one secret, `CLOUDLY_KEYSTORE_BASE64`; the password
+  (`cloudly-release`) and alias (`cloudly`) are fixed in `release.yml` to keep setup to a single paste for a
+  non-technical owner. Never replace the keystore, or installed copies stop accepting updates. Bump `cloudlyVersionPrefix` per milestone (0.1 → 0.2 …).
 - Run `./gradlew testDebugUnitTest` before pushing. Add regression tests in `app/src/test` for any core change.
