@@ -41,9 +41,12 @@ jobs:
             echo "::error::Missing repository secret CLOUDLY_KEYSTORE_BASE64. See README.md > Release signing."
             exit 1
           fi
-          # Tolerate pasted line breaks, spaces and certutil BEGIN/END header lines.
-          printf '%s' "$KS" | grep -v -- '-----' | tr -d ' \r\n\t' | base64 --decode > "$RUNNER_TEMP/cloudly-release.jks" || {
-            echo "::error::CLOUDLY_KEYSTORE_BASE64 is not valid base64. Paste the whole contents of cloudly-signing-key.txt."
+          # Keep only base64 characters, so anything picked up when copying from a chat or editor
+          # (code-fence backticks, smart quotes, invisible formatting, certutil BEGIN/END lines) is ignored.
+          CLEAN=$(printf '%s' "$KS" | grep -v -- '-----' | tr -cd 'A-Za-z0-9+/=')
+          echo "Secret length: ${#KS} characters, ${#CLEAN} after cleaning."
+          printf '%s' "$CLEAN" | base64 --decode > "$RUNNER_TEMP/cloudly-release.jks" || {
+            echo "::error::CLOUDLY_KEYSTORE_BASE64 is not valid base64 (${#CLEAN} usable characters). Paste the whole key again."
             exit 1
           }
           keytool -list -keystore "$RUNNER_TEMP/cloudly-release.jks" -storepass "$CLOUDLY_KEYSTORE_PASSWORD" -alias "$CLOUDLY_KEY_ALIAS" > /dev/null || {
