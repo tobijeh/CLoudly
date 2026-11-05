@@ -91,4 +91,42 @@ class CloudLayoutTest {
         val p = CloudLayout.layout(ws, 1, boxes, vw, vh).single()
         assertTrue(p.width <= vw * CloudLayout.CENTRE_MAX_WIDTH_FRACTION + 0.5f)
     }
+
+    @Test
+    fun `a dragged word sits where it was dropped and pushes the others out of its way`() {
+        val ws = words(20)
+        val spot = 300f to -150f
+        val before = CloudLayout.layout(ws, 1, boxes, vw, vh).associateBy { it.id }
+        val after = CloudLayout.layout(ws, 1, boxes, vw, vh, fixed = mapOf(5L to spot)).associateBy { it.id }
+        val dragged = after.getValue(5)
+        assertEquals(spot.first, dragged.cx, 0.01f)
+        assertEquals(spot.second, dragged.cy, 0.01f)
+        val list = after.values.toList()
+        for (i in list.indices) for (j in i + 1 until list.size) {
+            assertFalse("overlap ${list[i]} ${list[j]}", overlap(list[i], list[j]))
+        }
+        // Something had to move to make room.
+        assertTrue(after.values.any { it.id != 5L && (it.cx != before.getValue(it.id).cx || it.cy != before.getValue(it.id).cy) })
+    }
+
+    @Test
+    fun `the centre word can be dragged too`() {
+        val ws = words(10)
+        val p = CloudLayout.layout(ws, 1, boxes, vw, vh, fixed = mapOf(1L to (-400f to 200f))).single { it.isCentre }
+        assertEquals(-400f, p.cx, 0.01f)
+        assertEquals(200f, p.cy, 0.01f)
+        assertEquals(vh * CloudLayout.CENTRE_HEIGHT_FRACTION, p.fontSize, 0.01f)
+    }
+
+    @Test
+    fun `only the words in the way move`() {
+        val ws = words(20)
+        val before = CloudLayout.layout(ws, 1, boxes, vw, vh).associateBy { it.id }
+        val target = before.getValue(7)
+        // Drop word 5 right on top of word 7.
+        val after = CloudLayout.layout(ws, 1, boxes, vw, vh, fixed = mapOf(5L to (target.cx to target.cy))).associateBy { it.id }
+        assertTrue("the word underneath moved", after.getValue(7).cx != target.cx || after.getValue(7).cy != target.cy)
+        val unmoved = after.values.count { it.id != 5L && it.cx == before.getValue(it.id).cx && it.cy == before.getValue(it.id).cy }
+        assertTrue("most words stay put ($unmoved of 18)", unmoved >= 12)
+    }
 }

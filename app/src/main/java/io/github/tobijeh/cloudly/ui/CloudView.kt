@@ -41,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.PointerEvent
@@ -74,7 +73,7 @@ import kotlin.math.hypot
 const val MOVE_DURATION_MS = 2000
 
 /** Drift-back after a drag: slower still, so the return is barely noticeable on camera. */
-const val DRIFT_DURATION_MS = 4000
+const val DRIFT_DURATION_MS = 3000
 
 /** Second tap must land within this window to count as a double-tap. Shorter than Android's 300 ms default. */
 const val DOUBLE_TAP_WINDOW_MS = 220L
@@ -93,7 +92,8 @@ class CloudGestures(
     val onPinchEnd: () -> Unit,
 )
 
-private enum class Motion { Calm, Follow, Drift }
+/** Calm: normal glide. Follow: the dragged word. Push: words making way for it. Drift: returning home. */
+private enum class Motion { Calm, Follow, Push, Drift }
 
 private data class Target(val x: Float, val y: Float, val size: Float, val alpha: Float, val motion: Motion)
 
@@ -105,15 +105,12 @@ private class WordAnim(t: Target, layout: TextLayoutResult, val color: Color) {
     var layout by mutableStateOf(layout)
     var target by mutableStateOf(t)
     var removing by mutableStateOf(false)
-    var naturalX by mutableStateOf(t.x)
-    var naturalY by mutableStateOf(t.y)
     var pinned by mutableStateOf(false)
 }
 
 /**
  * Renders the word cloud: full screen on the TV / in mirror mode, small as the phone preview.
- * With [gestures] (the preview): tap, double-tap, hold, drag (with bin), pinch. With [showGuides] the preview
- * also draws a faint outline where a dragged word will drift back to.
+ * With [gestures] (the preview): tap, double-tap, hold, drag (with bin; other words make way), pinch.
  */
 @Composable
 fun CloudView(
@@ -122,7 +119,6 @@ fun CloudView(
     modifier: Modifier = Modifier,
     emptyHint: String? = null,
     gestures: CloudGestures? = null,
-    showGuides: Boolean = false,
 ) {
     BoxWithConstraints(modifier.background(CloudBackground)) {
         val vw = constraints.maxWidth.toFloat()
@@ -139,13 +135,15 @@ fun CloudView(
             val tl = cache[w.display]
             w.id to TextBox(tl.size.width / refPx, tl.size.height / refPx)
         }
-        val placements by produceState(emptyList<PlacedWord>(), visible, centreId, vw, vh, boxes) {
+        val pins = state.pins
+        val fixed = pins.mapValues { (_, p) -> p.nx * vw to p.ny * vh }
+        val placements by produceState(emptyList<PlacedWord>(), visible, centreId, vw, vh, boxes, fixed) {
             value = withContext(Dispatchers.Default) {
-                CloudLayout.layout(visible, centreId, { boxes.getValue(it.id) }, vw, vh)
+                CloudLayout.layout(visible, centreId, { boxes.getValue(it.id) }, vw, vh, fixed)
             }
         }
         val displayById = visible.associate { it.id to it.display }
-        val pins = state.pins
+        val anyDragging = pins.values.any { it.dragging }
 
         val anims = remember { mutableStateMapOf<Long, WordAnim>() }
 
@@ -159,22 +157,20 @@ fun CloudView(
                 val a = anims[p.id]
                 val motion = when {
                     pin?.dragging == true -> Motion.Follow
+                    anyDragging -> Motion.Push
                     pin == null && a?.pinned == true -> Motion.Drift
                     else -> Motion.Calm
                 }
-                val tx = pin?.let { it.nx * vw } ?: p.cx
-                val ty = pin?.let { it.ny * vh } ?: p.cy
-                val t = Target(tx, ty, p.fontSize, 1f, motion)
+                val t = Target(p.cx, p.cy, p.fontSize, 1f, motion)
                 if (a == null) {
                     // New words grow in place from small.
                     anims[p.id] = WordAnim(t.copy(size = p.fontSize * 0.2f, alpha = 0f), layout, wordColor(p.id)).also {
                         it.target = t
-                        it.naturalX = p.cx; it.naturalY = p.cy; it.pinned = pin != null
+                        it.pinned = pin != null
                     }
                 } else {
                     a.layout = layout
                     a.removing = false
-                    a.naturalX = p.cx; a.naturalY = p.cy
                     a.pinned = pin != null
                     a.target = t
                 }
@@ -195,6 +191,9 @@ fun CloudView(
                         val spec: AnimationSpec<Float> = when (t.motion) {
                             // Preview tracks the finger exactly; the TV glides after it smoothly.
                             Motion.Follow -> if (isPreview) snap() else spring(dampingRatio = 1f, stiffness = 45f)
+                            // Springs keep their velocity when the target moves every frame, so pushed words
+                            // flow smoothly out of the way instead of restarting an ease each frame.
+                            Motion.Push -> spring(dampingRatio = 1f, stiffness = if (isPreview) 120f else 35f)
                             Motion.Drift -> tween(DRIFT_DURATION_MS, easing = CalmEasing)
                             Motion.Calm -> tween(MOVE_DURATION_MS, easing = CalmEasing)
                         }
@@ -227,22 +226,6 @@ fun CloudView(
         var overBin by remember { mutableStateOf(false) }
 
         Canvas(Modifier.fillMaxSize()) {
-            // Phone only: faint outline at the natural spot of any word that has been dragged away.
-            if (showGuides) {
-                for ((_, a) in anims) {
-                    if (!a.pinned || a.removing) continue
-                    val tl = a.layout
-                    val s = a.size.value / refPx
-                    translate(vw / 2 + a.naturalX, vh / 2 + a.naturalY) {
-                        scale(s, s, pivot = Offset.Zero) {
-                            drawText(
-                                tl, color = a.color, topLeft = Offset(-tl.size.width / 2f, -tl.size.height / 2f),
-                                alpha = 0.28f, drawStyle = Stroke(width = 1.2f / s.coerceAtLeast(0.01f)),
-                            )
-                        }
-                    }
-                }
-            }
             val order = anims.entries.sortedWith(
                 compareBy<Map.Entry<Long, WordAnim>> { it.key == emphasis?.wordId || it.key == draggingId }
                     .thenBy { it.value.size.value },
@@ -257,7 +240,7 @@ fun CloudView(
                         drawText(
                             tl, color = a.color, topLeft = Offset(-tl.size.width / 2f, -tl.size.height / 2f),
                             alpha = (a.alpha.value * fade).coerceIn(0f, 1f),
-                            drawStyle = Fill, // explicit: the guide outline's Stroke would otherwise stick to the shared layout
+                            drawStyle = Fill, // explicit, so a draw style never leaks between draws of the shared layout
                         )
                     }
                 }
@@ -346,17 +329,23 @@ fun CloudView(
                                     g.onDrag(target, (startX + p.x - down.position.x) / vw, (startY + p.y - down.position.y) / vh)
                                 }
                                 update(pos)
-                                while (true) {
-                                    val ev = awaitPointerEvent()
-                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.first()
-                                    if (!ch.pressed) break
-                                    update(ch.position)
-                                    ev.changes.forEach(PointerInputChange::consume)
+                                var binned = false
+                                try {
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.first()
+                                        if (!ch.pressed) break
+                                        update(ch.position)
+                                        ev.changes.forEach(PointerInputChange::consume)
+                                    }
+                                    binned = overBin
+                                } finally {
+                                    // Always end the drag, even if the gesture is cancelled (e.g. a drawer
+                                    // takes over), so the word can never get stuck "being dragged".
+                                    draggingId = null
+                                    overBin = false
+                                    g.onDragEnd(target, binned)
                                 }
-                                val binned = overBin
-                                draggingId = null
-                                overBin = false
-                                g.onDragEnd(target, binned)
                             }
                             "pinch" -> {
                                 var pinchId: Long? = null

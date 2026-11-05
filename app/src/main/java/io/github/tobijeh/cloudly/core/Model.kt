@@ -26,8 +26,8 @@ data class Emphasis(val wordId: Long, val scale: Float, val active: Boolean)
 /**
  * A word the host dragged to a spot of their choosing. [nx]/[ny] are relative to the viewport centre as a
  * fraction of its width/height (-0.5..0.5), so a spot on the phone preview maps to the same spot on the TV.
- * While [dragging] the word follows the finger; once released it stays put until the drift-back delay has
- * passed since [releasedAt], then it glides back to its natural position.
+ * Other words are pushed out of its way. While [dragging] the word follows the finger; once released it
+ * stays put until the drift-back delay (5 s) has passed since [releasedAt], then it glides back home.
  */
 data class Pin(val nx: Float, val ny: Float, val dragging: Boolean, val releasedAt: Long = 0L)
 
@@ -67,7 +67,7 @@ data class CloudSettings(
 ) {
     companion object {
         const val DEFAULT_MAX_VISIBLE = 20
-        const val DEFAULT_DRIFT_BACK_MS = 60_000L
+        const val DEFAULT_DRIFT_BACK_MS = 5_000L
         const val MIN_VISIBLE = 10
         const val MAX_VISIBLE = 30
         val AUTO_RELEASE_CHOICES_MIN = listOf<Int?>(null, 1, 2, 5)
