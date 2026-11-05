@@ -66,8 +66,14 @@ object CloudLayout {
         boxes: (Word) -> TextBox,
         viewportWidth: Float,
         viewportHeight: Float,
+        /**
+         * Words the host dragged somewhere: id → centre position in px relative to the viewport centre.
+         * They sit exactly there; words they bump into move to the nearest free spot, the rest stay put.
+         */
+        fixed: Map<Long, Pair<Float, Float>> = emptyMap(),
     ): List<PlacedWord> {
         if (words.isEmpty() || viewportWidth <= 0f || viewportHeight <= 0f) return emptyList()
+        if (fixed.isNotEmpty()) return pushAround(words, centreId, boxes, viewportWidth, viewportHeight, fixed)
         val centre = words.firstOrNull { it.id == centreId }
         val others = words.filter { it.id != centre?.id }
         val maxCount = words.maxOf { it.count }
@@ -116,6 +122,32 @@ object CloudLayout {
         return best
     }
 
+    /**
+     * Sandbox push: start from the normal layout, put dragged words at their spots, and move only the words
+     * they bump into, each to the nearest free spot around where it was. Words out of the way don't move.
+     */
+    private fun pushAround(
+        words: List<Word>,
+        centreId: Long?,
+        boxes: (Word) -> TextBox,
+        vw: Float,
+        vh: Float,
+        fixed: Map<Long, Pair<Float, Float>>,
+    ): List<PlacedWord> {
+        val base = layout(words, centreId, boxes, vw, vh)
+        val placed = ArrayList<PlacedWord>(base.size)
+        for (b in base) fixed[b.id]?.let { (fx, fy) -> placed += b.copy(cx = fx, cy = fy) }
+        // Centre first, then larger words, so the big ones keep their spots and small ones squeeze around.
+        val rest = base.filter { it.id !in fixed }.sortedWith(compareByDescending<PlacedWord> { it.isCentre }.thenByDescending { it.fontSize })
+        for (b in rest) {
+            val gap = max(2f, GAP_FRACTION * b.height)
+            placed += if (placed.none { overlaps(b.cx, b.cy, b.width, b.height, it, gap) }) b
+            else place(b.id, b.fontSize, TextBox(b.width / b.fontSize, b.height / b.fontSize), placed, vw, vh, b.cx, b.cy)
+                .copy(isCentre = b.isCentre)
+        }
+        return placed
+    }
+
     private fun place(
         id: Long,
         font: Float,
@@ -123,6 +155,8 @@ object CloudLayout {
         placed: List<PlacedWord>,
         vw: Float,
         vh: Float,
+        originX: Float = 0f,
+        originY: Float = 0f,
     ): PlacedWord {
         val w = box.width * font
         val h = box.height * font
@@ -137,8 +171,8 @@ object CloudLayout {
         var cy = 0f
         for (step in 0 until MAX_SPIRAL_STEPS) {
             val r = ringSpacing * travelled
-            cx = (r * cos(theta) * aspect).toFloat()
-            cy = (r * sin(theta)).toFloat()
+            cx = originX + (r * cos(theta) * aspect).toFloat() + 0f // + 0f turns -0.0 into 0.0
+            cy = originY + (r * sin(theta)).toFloat() + 0f
             if (placed.none { overlaps(cx, cy, w, h, it, gap) }) break
             val dTheta = stepLen / max(r, stepLen.toDouble())
             theta += dTheta

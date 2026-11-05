@@ -16,7 +16,7 @@ publishes a signed APK to GitHub Releases, so updates install over the previous 
   - **Tap** a word: lock it in the centre (tap again, or *Auto*, to release).
   - **Double-tap**: rename it.
   - **Hold**: Listen-for spellings, Hide from TV, Reset count.
-  - **Drag**: move it anywhere. It drifts back after a minute. Drop it on the bin to delete (with Undo).
+  - **Drag**: move it anywhere; other words make way. It drifts back 5 seconds after you let go. Drop it on the bin to delete (with Undo).
   - **Pinch out**: enlarge it on the TV for a moment.
 
 ## Release signing (one-time setup)

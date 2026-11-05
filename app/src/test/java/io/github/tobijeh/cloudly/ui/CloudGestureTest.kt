@@ -53,7 +53,7 @@ class CloudGestureTest {
         )
         rule.setContent {
             val state = c.state.collectAsState()
-            CloudView(state.value, CloudSettings(), Modifier.fillMaxSize().testTag("cloud"), gestures = g, showGuides = true)
+            CloudView(state.value, CloudSettings(), Modifier.fillMaxSize().testTag("cloud"), gestures = g)
         }
         // Layout runs on a background thread; give it real time, then let animations settle.
         repeat(6) { Thread.sleep(150); rule.mainClock.advanceTimeBy(500); rule.waitForIdle() }

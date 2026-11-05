@@ -34,9 +34,9 @@ to watch or manage the phone. Keep future work consistent with this file.
 - `ui/CloudView`: measures each word once at a 100sp reference size, then draws scaled, so animating size never
   re-measures. Each word animates independently towards its own target (so a dragged word never disturbs the
   others): Calm = 2000 ms tween (`MOVE_DURATION_MS`), Follow (being dragged) = snap on the phone / slow spring on
-  the TV, Drift (returning after a drag) = 4000 ms tween. New words fade and grow in place. Emphasis follows the
+  the TV, Push (making way for a dragged word) = spring, Drift (returning after a drag) = 3000 ms tween. New words fade and grow in place. Emphasis follows the
   fingers, then springs back (damping 0.55, stiffness 40, about 1 s). `TextDirection.Content` handles Hebrew RTL.
-  Always pass `drawStyle = Fill` when drawing words: the guide outline's Stroke sticks to the shared layout.
+  Always pass `drawStyle = Fill` when drawing words so a draw style never leaks between draws of a layout.
 - `AppGraph` (in `CloudlyApp`) holds the singletons shared by the phone UI and the TV Presentation: the controller,
   settings (SharedPreferences), the episode store (JSON in filesDir/episodes), a 1 s auto-release ticker, and a
   debounced autosave.
@@ -53,9 +53,12 @@ to watch or manage the phone. Keep future work consistent with this file.
 - Double-tap: rename in place (overlay text field at the word). Keeps id, size, count and position; the old name
   becomes a Listen-for variant; then backfill. Duplicate names are refused with a snackbar.
 - Hold (system long-press timeout): menu with Listen-for spellings, Hide from TV, Reset count.
-- Drag: `CloudState.pins` stores the spot as a fraction of the viewport relative to its centre. After
-  `driftBackMs` (60 s) hands-off the pin is removed in `tick()` and the word drifts home. The phone draws a
-  faint outline at the natural spot of pinned words. Pins are not persisted.
+- Drag (sandbox): `CloudState.pins` stores the spot as a fraction of the viewport relative to its centre.
+  `CloudLayout.layout(fixed = …)` places pinned words exactly there and packs everything else around them, so
+  other words get pushed out of the way while dragging (Push motion = velocity-keeping spring). After
+  `driftBackMs` (5 s, owner's choice) hands-off the pin is removed in `tick()` and the word drifts home over 3 s.
+  No outline/shadow (owner removed it). Pins are not persisted. Drag end runs in `finally`, so a cancelled
+  gesture can never leave a word stuck as "dragging".
 - Drag to bin: a bin appears at the bottom of the preview only while dragging; dropping deletes with Undo.
 - Pinch out: display-only emphasis.
 - Word list rows are display only. A row is tappable only when its word isn't on the cloud (hidden, or past the

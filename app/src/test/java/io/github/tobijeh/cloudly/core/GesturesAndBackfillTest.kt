@@ -101,7 +101,20 @@ class GesturesAndBackfillTest {
     }
 
     @Test
+    fun `default drift-back is 5 seconds`() {
+        val a = c.addWord("alpha")!!
+        c.drag(a, 0.1f, 0.1f); c.endDrag(a)
+        now += 4_900
+        c.tick()
+        assertNotNull(s.pins[a])
+        now += 100
+        c.tick()
+        assertNull(s.pins[a])
+    }
+
+    @Test
     fun `dragging again restarts the drift-back timer`() {
+        c.settings = CloudSettings(driftBackMs = 60_000)
         val a = c.addWord("alpha")!!
         c.drag(a, 0.1f, 0.1f); c.endDrag(a)
         now += 50_000

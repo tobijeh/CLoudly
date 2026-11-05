@@ -208,7 +208,6 @@ fun ControlsContent(
                     settings = settings,
                     emptyHint = "Add a word to start the cloud",
                     gestures = gestures,
-                    showGuides = true,
                     modifier = Modifier.fillMaxSize(),
                 )
                 renaming?.let { (id, at) ->
