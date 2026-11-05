@@ -23,6 +23,14 @@ data class CentreLock(val wordId: Long, val lockedAt: Long)
  */
 data class Emphasis(val wordId: Long, val scale: Float, val active: Boolean)
 
+/**
+ * A word the host dragged to a spot of their choosing. [nx]/[ny] are relative to the viewport centre as a
+ * fraction of its width/height (-0.5..0.5), so a spot on the phone preview maps to the same spot on the TV.
+ * While [dragging] the word follows the finger; once released it stays put until the drift-back delay has
+ * passed since [releasedAt], then it glides back to its natural position.
+ */
+data class Pin(val nx: Float, val ny: Float, val dragging: Boolean, val releasedAt: Long = 0L)
+
 data class CloudState(
     val words: List<Word> = emptyList(),
     /** Most recently mentioned word (the "auto" centre). */
@@ -30,6 +38,7 @@ data class CloudState(
     val lock: CentreLock? = null,
     val listening: Boolean = false,
     val emphasis: Emphasis? = null,
+    val pins: Map<Long, Pin> = emptyMap(),
 ) {
     fun word(id: Long?): Word? = id?.let { wid -> words.firstOrNull { it.id == wid } }
 
@@ -53,9 +62,12 @@ data class CloudSettings(
     val countTapsAsMentions: Boolean = true,
     /** null = never auto-release. */
     val autoReleaseMs: Long? = null,
+    /** How long a dragged word stays where it was dropped before drifting back. */
+    val driftBackMs: Long = DEFAULT_DRIFT_BACK_MS,
 ) {
     companion object {
         const val DEFAULT_MAX_VISIBLE = 20
+        const val DEFAULT_DRIFT_BACK_MS = 60_000L
         const val MIN_VISIBLE = 10
         const val MAX_VISIBLE = 30
         val AUTO_RELEASE_CHOICES_MIN = listOf<Int?>(null, 1, 2, 5)

@@ -45,7 +45,7 @@ const val UNDO_WINDOW_MS = 5_000L
 
 private sealed interface DialogState {
     data object AddWord : DialogState
-    data class EditWord(val word: Word) : DialogState
+    data class EditVariants(val word: Word) : DialogState
     data object SaveEpisode : DialogState
     data class LoadEpisode(val episodes: List<Episode>) : DialogState
     data object Settings : DialogState
@@ -72,7 +72,8 @@ fun CloudlyRoot(graph: AppGraph, tvName: String?, mirror: Boolean, onToggleMirro
         object : ControlsActions {
             override val controller: CloudController = graph.controller
             override fun addWord() { dialog = DialogState.AddWord }
-            override fun edit(word: Word) { dialog = DialogState.EditWord(word) }
+            override fun editVariants(word: Word) { dialog = DialogState.EditVariants(word) }
+            override fun message(text: String) { scope.launch { snackbar.showSnackbar(text) } }
             override fun delete(word: Word) {
                 val deleted = controller.delete(word.id) ?: return
                 scope.launch {
@@ -107,8 +108,8 @@ fun CloudlyRoot(graph: AppGraph, tvName: String?, mirror: Boolean, onToggleMirro
         DialogState.AddWord -> WordEditorDialog(null, onDismiss = { dialog = null }) { text, variants ->
             graph.controller.addWord(text, variants); dialog = null
         }
-        is DialogState.EditWord -> WordEditorDialog(d.word, onDismiss = { dialog = null }) { text, variants ->
-            graph.controller.editWord(d.word.id, text, variants); dialog = null
+        is DialogState.EditVariants -> ListenForDialog(d.word, onDismiss = { dialog = null }) { variants ->
+            graph.controller.setVariants(d.word.id, variants); dialog = null
         }
         DialogState.SaveEpisode -> SaveEpisodeDialog(
             defaultName = "Episode " + SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
@@ -145,7 +146,7 @@ private fun MirrorScreen(graph: AppGraph, actions: ControlsActions, tvName: Stri
         drawerState = drawer,
         drawerContent = {
             ModalDrawerSheet(Modifier.width(400.dp)) {
-                ControlsContent(state, settings, actions, mirror = true, tvName = tvName, showPreview = false)
+                ControlsContent(state, settings, actions, mirror = true, tvName = tvName, showPreview = true)
             }
         },
     ) {
